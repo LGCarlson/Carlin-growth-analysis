@@ -1,0 +1,508 @@
+---
+title: "human vs algorithm data processing"
+author: "LGCarlson"
+date: "10/9/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(janitor)
+library(here)
+library(zoo) 
+
+check = function(x){summary(as.factor(x))}
+
+#set personalized plotting theme
+LGCtheme <- theme_light() + theme(panel.background = element_blank(), 
+                panel.grid = element_blank(), 
+                axis.text = element_text(size = 13), 
+                axis.title = element_text(size = 14), 
+                legend.text = element_text(size = 13), 
+                legend.title = element_text(size = 14), 
+                strip.background = element_blank(), 
+                strip.text = element_text(size = 13, color = "black"))
+
+theme_set(theme_light())
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r,message=F}
+homewater_human<-read_csv(here::here("raw_data", "homewater_humanmarked.csv"))
+```
+
+
+
+```{r}
+human_marked<-data.frame(matrix(NaN,nrow=nrow(homewater_human),ncol=35))
+
+colnames(human_marked)<-c("JoinID","ReleaseYear","markersource","M1.loc","M2.loc","FMC","FSM","FWM","SSM","SWM",
+                    "FMC.circ","smolt.circ","marine.circ","total.circ","FSM.circ","FWM.circ","SSM.circ","SWM.circ",
+                    "FS.circ","FW.circ","PS.circ","SS.circ","SW.circ","Y2.circ","M1","M2",
+                    "smolt.incr","marine.incr","total.incr","FS.incr","FW.incr",
+                    "PS.incr","SS.incr","SW.incr","Y2.incr")
+
+# loop to calculate growth increment data
+for(i in 1:nrow(homewater_human)){
+  
+   # Select row and locate column numbers (13:154) for circuli data (may need to change this for different data sets)
+  vect<-as.numeric(homewater_human[i,15:140])
+  
+  # Get rid of NA at the end of the vector
+  vect<-vect[!is.na(vect)]
+  
+  # Intercirculi spacings
+  spacings<-diff(vect)
+  
+  # ID
+  human_marked$JoinID[i]<-homewater_human$JoinID[i]
+  
+  # year
+  human_marked$ReleaseYear[i]<-homewater_human$ReleaseYear[i]
+  
+  # markersource
+  human_marked$markersource[i]<-"human"
+  
+  # M1
+  human_marked$M1.loc[i]<-homewater_human$M1[i]
+  
+  # M2
+  human_marked$M2.loc[i]<-homewater_human$M2[i]
+  
+  # FMC
+  human_marked$FMC[i]<-homewater_human$FMC[i]
+
+  
+  
+    ####################################################################################
+  
+  # Depending on which growth markers are present, certain growth increments will be identifiable
+  
+  # is FMC present? if not, keep this row NaN and then go to next row
+  if(is.na(homewater_human$FMC[i])){
+    next
+  }
+  
+  ####################################################################################
+  
+  # if FMC is present, calculate these growth markers, increments and circuli
+  
+  # First marine circuli (FMC) circuli number
+  FMC<-(which(homewater_human$FMC[i]<=vect)[1])-1
+
+  human_marked$FMC.circ[i]<-FMC 
+  
+  # smolt increment (focus to last circuli before FMC)
+  human_marked$smolt.incr[i]<-sum(spacings[1:(FMC-1)])
+  
+  # marine growth (FMC to end)
+  human_marked$marine.incr[i]<-sum(spacings[FMC:length(spacings)])
+  
+  # total growth (entire scale from 1st circuli to the end)
+  human_marked$total.incr[i]<-sum(spacings)
+  
+  # number of smolt circuli
+  human_marked$smolt.circ[i]<-length(spacings[1:(FMC-1)])
+  
+  # number of marine circuli
+  human_marked$marine.circ[i]<-length(spacings[FMC:length(spacings)])
+  
+  # number of total circuli
+  human_marked$total.circ[i]<-length(spacings)
+  
+  ####################################################################################
+  
+  # Depending on which growth markers are present, certain growth increments will be identifiable
+  
+  # is M1 present? if not, go to next row
+  if(is.na(homewater_human$M1[i])){
+    next
+  }
+  
+  ####################################################################################
+  
+  # if M1 is present, calculate these growth markers, increments and circuli
+  
+  # M1 circuli number
+  M1<-(which(homewater_human$M1[i]<=vect)[1])-1
+  human_marked$M1[i]<-M1
+  
+  FSM<-(which(homewater_human$SM1[i]<=vect)[1])-1
+  
+  # First summer maximum (FSM) circulus number
+  human_marked$FSM.circ[i]<-FSM
+  human_marked$FSM[i]<-homewater_human$SM1[i]
+  
+  # First summer at sea growth (FMC to FSM)
+  human_marked$FS.incr[i]<-sum(spacings[FMC:FSM])
+  
+  # First winter at sea growth (first circuli after FSM to M1)
+  human_marked$FW.incr[i]<-sum(spacings[(FSM+1):M1])
+  
+  # First winter minimum (FWM)
+  FWM<-(which(homewater_human$WM1[i]<=vect)[1])-1
+  
+  # First winter minimum (FWM) circulus number
+  human_marked$FWM.circ[i]<-FWM
+  human_marked$FWM[i]<-homewater_human$WM1[i]
+  
+  # Post-smolt growth (FMC to M1)
+  human_marked$PS.incr[i]<-sum(spacings[FMC:M1])
+  
+  # First summer, number of circuli
+  human_marked$FS.circ[i]<-length(spacings[FMC:FSM])
+  
+  # First winter, number of circuli
+  human_marked$FW.circ[i]<-length(spacings[(FSM+1):M1])
+  
+  # Post-smolt, number of circuli
+  human_marked$PS.circ[i]<-length(spacings[FMC:M1])
+  
+  
+  ####################################################################################
+  
+  # Depending on which growth markers are present, certain growth increments will be identifiable
+  
+  # is M2 present? if not, go to next row
+  if(is.na(homewater_human$M2[i])){
+    next
+  }
+  
+  ####################################################################################
+  
+  # if M2 is present, calculate these growth markers, increments and circuli
+  
+  # M2 circuli number if present
+  M2<-(which(homewater_human$M2[i]<=vect)[1])-1
+  human_marked$M2[i]<-M2
+  
+  # Second summer maximum
+  SSM<-(which(homewater_human$SM2[i]<=vect)[1])-1
+  
+  # Second summer maximum (SSM) circulus number
+  human_marked$SSM.circ[i]<-SSM
+  human_marked$SSM[i]<-homewater_human$SM2[i]
+  
+  # Second summer at sea growth (first circuli after M1 to SSM)
+  human_marked$SS.incr[i]<-sum(spacings[(M1+1):SSM])
+  
+  # Second winter at sea growth (first circuli after SSM to M2)
+  human_marked$SW.incr[i]<-sum(spacings[(SSM+1):M2])
+  
+  
+  
+  # Second winter minimum (SWM)
+  SWM<-(which(homewater_human$WM2[i]<=vect)[1])-1
+  
+  # Second winter minimum (SWM) circulus number
+  human_marked$SWM.circ[i]<-SWM
+  human_marked$SWM[i]<-homewater_human$WM2[i]
+  
+  
+  # Year 2 growth (first circuli after M1 to M2)
+  human_marked$Y2.incr[i]<-sum(spacings[(M1+1):M2])
+  
+  # Second summer, number of circuli
+  human_marked$SS.circ[i]<-length(spacings[(M1+1):SSM])
+  
+  # Second winter, number of circuli
+  human_marked$SW.circ[i]<-length(spacings[(SSM+1):M2])
+  
+  # Year-two number of circuli
+  human_marked$Y2.circ[i]<-length(spacings[(M1+1):M2])
+  
+}
+```
+
+
+
+
+
+
+
+```{r}
+alg_marked<-data.frame(matrix(NaN,nrow=nrow(homewater_human),ncol=35))
+
+colnames(alg_marked)<-c("JoinID","ReleaseYear","markersource","M1.loc","M2.loc","FMC","FSM","FWM","SSM","SWM",
+                    "FMC.circ","smolt.circ","marine.circ","total.circ","FSM.circ","FWM.circ","SSM.circ","SWM.circ",
+                    "FS.circ","FW.circ","PS.circ","SS.circ","SW.circ","Y2.circ","M1","M2",
+                    "smolt.incr","marine.incr","total.incr","FS.incr","FW.incr",
+                    "PS.incr","SS.incr","SW.incr","Y2.incr")
+
+# loop to calculate growth increment data
+for(i in 1:nrow(homewater_human)){
+  
+  # Select row and locate column numbers (13:154) for circuli data (may need to change this for different data sets)
+  vect<-as.numeric(homewater_human[i,15:140])
+  
+  # Get rid of NA at the end of the vector
+  vect<-vect[!is.na(vect)]
+  
+  # Smoothed circuli spacing, 5 pairs
+  vectavg<-zoo::rollapply(data=vect,width=5,FUN=mean,partial=T,align="center",na.rm=T)
+  
+  # Intercirculi spacings
+  spacingavg<-diff(vectavg)
+  
+  # ID
+  alg_marked$JoinID[i]<-homewater_human$JoinID[i]
+  
+  # year
+  alg_marked$ReleaseYear[i]<-homewater_human$ReleaseYear[i]
+  
+  # markersource
+  alg_marked$markersource[i]<-"algorithm"
+  
+  # M1
+  alg_marked$M1.loc[i]<-homewater_human$M1[i]
+  
+  # M2
+  alg_marked$M2.loc[i]<-homewater_human$M2[i]
+  
+  # FMC
+  alg_marked$FMC[i]<-homewater_human$FMC[i]
+  
+  
+    ####################################################################################
+  
+  # Depending on which growth markers are present, certain growth increments will be identifiable
+  
+  # is FMC present? if not, keep this row NaN and then go to next row
+  if(is.na(homewater_human$FMC[i])){
+    next
+  }
+  
+  ####################################################################################
+  
+  # if FMC is present, calculate these growth markers, increments and circuli
+  
+  # First marine circuli (FMC) circuli number
+  FMC<-(which(homewater_human$FMC[i]<=vect)[1])-1
+
+  alg_marked$FMC.circ[i]<-FMC 
+  
+  # smolt increment (focus to last circuli before FMC)
+  alg_marked$smolt.incr[i]<-sum(spacingavg[1:(FMC-1)])
+  
+  # marine growth (FMC to end)
+  alg_marked$marine.incr[i]<-sum(spacingavg[FMC:length(spacingavg)])
+  
+  # total growth (entire scale from 1st circuli to the end)
+  alg_marked$total.incr[i]<-sum(spacingavg)
+  
+  # number of smolt circuli
+  alg_marked$smolt.circ[i]<-length(spacingavg[1:(FMC-1)])
+  
+  # number of marine circuli
+  alg_marked$marine.circ[i]<-length(spacingavg[FMC:length(spacingavg)])
+  
+  # number of total circuli
+  alg_marked$total.circ[i]<-length(spacingavg)
+  
+  ####################################################################################
+  
+  # Depending on which growth markers are present, certain growth increments will be identifiable
+  
+  # is M1 present? if not, go to next row
+  if(is.na(homewater_human$M1[i])){
+    next
+  }
+  
+  ####################################################################################
+  
+  # if M1 is present, calculate these growth markers, increments and circuli
+  
+  # M1 circuli number
+  M1<-(which(homewater_human$M1[i]<=vect)[1])-1
+  alg_marked$M1[i]<-M1
+  
+  # First summer maximum (FSM) circuli number
+  # (subtract 1 from FMC because it is already included in indexing)
+  FSM<-(FMC-1)+which(spacingavg[FMC:M1]==max(spacingavg[FMC:M1]))[1]
+  
+  # First summer maximum (FSM) circulus number
+  alg_marked$FSM.circ[i]<-FSM
+  alg_marked$FSM[i]<-vect[FSM]
+  
+  # First summer at sea growth (FMC to FSM)
+  alg_marked$FS.incr[i]<-sum(spacingavg[FMC:FSM])
+  
+  # First winter at sea growth (first circuli after FSM to M1)
+  alg_marked$FW.incr[i]<-sum(spacingavg[(FSM+1):M1])
+  
+  # First winter minimum (FWM)
+  # if there is only one marine annulus, stop searching at the end of the spacing vector
+  # if there are two annuli, stop searching 10 circuli past the first marine annulus
+  stopFWMsearch <- ifelse(is.na(homewater_human$M2[i]) == T, length(spacingavg), (M1 + 10))
+  FWM<-(FSM-1)+which(spacingavg[FSM:stopFWMsearch]==min(spacingavg[FSM:stopFWMsearch]))[1]
+  
+  # First winter minimum (FWM) circulus number
+  alg_marked$FWM.circ[i]<-FWM
+  alg_marked$FWM[i]<-vect[FWM]
+  
+  # Post-smolt growth (FMC to M1)
+  alg_marked$PS.incr[i]<-sum(spacingavg[FMC:M1])
+  
+  
+  # First summer, number of circuli
+  alg_marked$FS.circ[i]<-length(spacingavg[FMC:FSM])
+  
+  # First winter, number of circuli
+  alg_marked$FW.circ[i]<-length(spacingavg[(FSM+1):M1])
+  
+  # Post-smolt, number of circuli
+  alg_marked$PS.circ[i]<-length(spacingavg[FMC:M1])
+  
+  
+  ####################################################################################
+  
+  # Depending on which growth markers are present, certain growth increments will be identifiable
+  
+  # is M2 present? if not, go to next row
+  if(is.na(homewater_human$M2[i])){
+    next
+  }
+  
+  ####################################################################################
+  
+  # if M2 is present, calculate these growth markers, increments and circuli
+  
+  # M2 circuli number if present
+  M2<-(which(homewater_human$M2[i]<=vect)[1])-1
+  alg_marked$M2[i]<-M2
+  
+  # Second summer maximum intercirucli spacing between M1 and M2
+  # (add 1 to M1 so as to not include M1 in second-year)
+  # find the max value between the first and second marine annuli
+  SSM<-M1+which(spacingavg[(M1+1):M2]==max(spacingavg[(M1+1):M2]))[1]
+  
+  
+  # Second summer maximum (SSM) circulus number
+  alg_marked$SSM.circ[i]<-SSM
+  alg_marked$SSM[i]<-vect[SSM]
+  
+  # Second summer at sea growth (first circuli after M1 to SSM)
+  alg_marked$SS.incr[i]<-sum(spacingavg[(M1+1):SSM])
+  
+  # Second winter at sea growth (first circuli after SSM to M2)
+  alg_marked$SW.incr[i]<-sum(spacingavg[(SSM+1):M2])
+  
+  
+  
+  
+  # Second winter minimum (SWM)
+  SWM<-(SSM-1)+which(spacingavg[SSM:length(spacingavg)]==min(spacingavg[SSM:length(spacingavg)]))[1]
+  
+  # Second winter minimum (SWM) circulus number
+  alg_marked$SWM.circ[i]<-SWM
+  alg_marked$SWM[i]<-vect[SWM]
+  
+  
+  
+  
+  
+  # Year 2 growth (first circuli after M1 to M2)
+  alg_marked$Y2.incr[i]<-sum(spacingavg[(M1+1):M2])
+  
+  # Second summer, number of circuli
+  alg_marked$SS.circ[i]<-length(spacingavg[(M1+1):SSM])
+  
+  # Second winter, number of circuli
+  alg_marked$SW.circ[i]<-length(spacingavg[(SSM+1):M2])
+  
+  # Year-two number of circuli
+  alg_marked$Y2.circ[i]<-length(spacingavg[(M1+1):M2])
+  
+}
+
+```
+
+```{r}
+alg_marked_test<-alg_marked %>% 
+  mutate(testcol1 = round(total.incr - (smolt.incr + marine.incr),1)) %>% 
+  mutate(testcol2 = total.circ - (smolt.circ + marine.circ)) %>% 
+  mutate(testcol3 = round(PS.incr - (FS.incr + FW.incr),1)) %>% 
+  mutate(testcol4 = Y2.circ - (SS.circ + SW.circ))
+
+hist(alg_marked_test$testcol1)
+hist(alg_marked_test$testcol2)
+hist(alg_marked_test$testcol3)
+hist(alg_marked_test$testcol4)
+```
+
+
+
+```{r}
+human_marked_test<-human_marked %>% 
+  mutate(testcol1 = round(total.incr - (smolt.incr + marine.incr),1)) %>% 
+  mutate(testcol2 = total.circ - (smolt.circ + marine.circ)) %>% 
+  mutate(testcol3 = round(PS.incr - (FS.incr + FW.incr),1)) %>% 
+  mutate(testcol4 = Y2.circ - (SS.circ + SW.circ))
+
+hist(human_marked_test$testcol1)
+hist(human_marked_test$testcol2)
+hist(human_marked_test$testcol3)
+hist(human_marked_test$testcol4)
+```
+
+```{r}
+proper_names<-tribble(
+~markertype, ~propername,
+"M1.loc", "First annulus location",
+"M2.loc","Second annulus location",
+"FMC", "First marine circulus location",
+"FSM", "First summer maximum location",
+"FWM", "First winter minimum location",
+"SSM","Second summer maximum location",
+"SWM", "Second winter minimum location",
+"FMC.circ","First marine circulus number",
+"smolt.circ", "Smolt circuli (n)",
+"marine.circ", "Marine circuli (n)",
+"total.circ",  "Total circuli (n)",
+"FSM.circ", "First summer maximum circulus number",
+"FWM.circ","First winter minimum circulus number",
+"SSM.circ","Second summer maximum circulus number",
+"SWM.circ","Second winter minimum circulus number",
+"FS.circ","First summer circuli (n)",
+"FW.circ","First winter circuli (n)",
+"PS.circ","Postsmolt circuli (n)",
+"SS.circ","Second summer circuli (n)",
+"SW.circ","Second winter circuli (n)",
+"Y2.circ","Second year circuli (n)",
+"M1", "First annulus circulus number",
+"M2", "Second annulus circulis number",
+"smolt.incr", "Smolt increment (mm)",
+"marine.incr", "Marine increment (mm)",
+"total.incr",  "Total increment (mm)",
+"FS.incr","First summer increment (mm)",
+"FW.incr","First winter increment (mm)",
+"PS.incr","Postsmolt increment (mm)",
+"SS.incr","Second summer increment (mm)",
+"SW.incr","Second winter increment (mm)",
+"Y2.incr","Second year increment (mm)")
+```
+
+
+```{r}
+alg_vs_human_markers<-bind_rows(human_marked, alg_marked) %>% 
+  drop_na() 
+
+## write.csv(alg_vs_human_markers, here::here("processed_data","alg_vs_human_markers.csv"))
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

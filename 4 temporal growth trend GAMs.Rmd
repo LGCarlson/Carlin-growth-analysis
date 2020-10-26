@@ -1,0 +1,368 @@
+---
+title: "Untitled"
+author: "LGCarlson"
+date: "10/26/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(janitor)
+library(here)
+library(mgcv)
+library(tidymv)
+library(patchwork)
+
+check = function(x){summary(as.factor(x))}
+
+#set personalized plotting theme
+LGCtheme <- theme_light() + theme(panel.background = element_blank(), 
+                panel.grid = element_blank(), 
+                axis.text = element_text(size = 13), 
+                axis.title = element_text(size = 14), 
+                legend.text = element_text(size = 13), 
+                legend.title = element_text(size = 14), 
+                strip.background = element_blank(), 
+                strip.text = element_text(size = 13, color = "black"))
+
+theme_set(theme_light())
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r,message=F}
+Carlin_full_algorithm<-read_csv(here::here("raw_data", "algorithm_full_dataset.csv")) %>% 
+  dplyr::rename("AW.incr" = "afterwinter_incr","AW.circ" = "afterwinter_circ")
+```
+
+
+Use linear model to detrend after winter increment based on number of days at sea
+
+```{r, fig.width=4,fig.height=6}
+detrend_incr <- lm(Carlin_full_algorithm$AW.incr ~ Carlin_full_algorithm$DaysatSea)
+Carlin_full_algorithm$DAW.incr <- resid(detrend_incr) + mean(Carlin_full_algorithm$AW.incr)
+
+incr_unadjusted<-Carlin_full_algorithm %>% 
+  ggplot(aes(DaysatSea, AW.incr)) + geom_jitter() + 
+  geom_smooth(method = "lm", fill="#ABB400", color="#ABB400") + LGCtheme + 
+  labs(y="Increment (mm)", x="Recapture julian date", title="Unadjusted postannulus growth")
+
+incr_adjusted<-Carlin_full_algorithm %>% 
+  ggplot(aes(DaysatSea, DAW.incr)) + geom_jitter() + 
+  geom_smooth(method = "lm", fill="#ABB400", color="#ABB400") + LGCtheme + 
+  labs(y="Increment (mm)", x="Recapture julian date", title="Adjusted postannulus growth")
+
+
+
+adj_plots<-(incr_unadjusted /
+  incr_adjusted)
+
+adj_plots
+```
+
+Create a dataframe of for writing gams
+
+```{r}
+gam.dat <- Carlin_full_algorithm %>% 
+  mutate(SeaAge = as.factor(SeaAge)) 
+```
+
+```{r}
+table(gam.dat$ReleaseYear[gam.dat$SeaAge == 1])
+
+table(gam.dat$ReleaseYear[gam.dat$SeaAge == 2])
+```
+
+
+## Increments
+
+```{r, warning=F, message=F, fig.height=4.5, fig.width=7.2}
+
+fs.gam1<-gam(FS.incr ~ SeaAge+s(ReleaseYear,by=SeaAge, k=5)+s(FMC.incr,by=SeaAge, k=5),data=gam.dat,select=T, method = 'REML')
+summary(fs.gam1)
+
+fs.gam2<-gam(FS.incr ~ SeaAge+s(ReleaseYear,by=SeaAge, k=5)+s(FMC.incr, k=5),data=gam.dat,select=T, method = 'REML')
+summary(fs.gam2)
+
+fs.gam3<-gam(FS.incr ~ SeaAge+s(ReleaseYear, k=5)+s(FMC.incr, k=5),data=gam.dat,select=T, method = 'REML')
+summary(fs.gam3)
+
+fs.gam4<-gam(FS.incr ~ s(ReleaseYear, k=5)+s(FMC.incr, k=5),data=gam.dat,select=T, method = 'REML')
+summary(fs.gam4)
+
+fs.gam5<-gam(FS.incr ~ s(ReleaseYear, k=5),data=gam.dat,select=T, method = 'REML')
+summary(fs.gam5)
+
+fs.gam6<-gam(FS.incr ~ s(ReleaseYear, by=SeaAge, k=5),data=gam.dat,select=T, method = 'REML')
+summary(fs.gam6)
+
+fs.gam7<-gam(FS.incr ~ s(FMC.incr, k=5),data=gam.dat,select=T, method = 'REML')
+summary(fs.gam7)
+
+fs.gam8<-gam(FS.incr ~ s(FMC.incr, by=SeaAge, k=5),data=gam.dat,select=T, method = 'REML')
+summary(fs.gam8)
+
+fs.gam9<-gam(FS.incr ~ SeaAge,data=gam.dat,select=T, method = 'REML')
+summary(fs.gam9)
+
+
+anova.gam(fs.gam1, fs.gam2, fs.gam3, fs.gam4, fs.gam5, fs.gam6, fs.gam7, fs.gam8, fs.gam9)
+AICtab<-AIC(fs.gam1, fs.gam2, fs.gam3, fs.gam4, fs.gam5, fs.gam6, fs.gam7, fs.gam8, fs.gam9) 
+
+AICtab %>% 
+  mutate(model = rownames(AICtab)) %>% 
+  dplyr::select(model, everything()) %>% 
+  arrange(AIC)
+
+
+type_labeller<-as_labeller(c("1" = "At sea recaptures", "2" = "Homewater recaptures"))
+
+
+fs_smooth_facet_rug<-plot_smooths(fs.gam2,ReleaseYear,SeaAge) +
+  facet_wrap(~SeaAge, labeller = type_labeller) + 
+  geom_rug(aes(x=ReleaseYear,y=FS.incr,color=SeaAge),data=gam.dat, na.rm = T,alpha = 0.25, position = "jitter", sides="bl") +
+  scale_y_continuous(limits = c(0,1.5)) +
+  scale_color_manual(values=c("#00608A","#ABB400"),name = "Recapture", labels = c("At sea", "Homewater")) +
+  scale_fill_manual(values=c("#00608A","#ABB400"),name = "Recapture", labels = c("At sea", "Homewater")) + 
+  scale_linetype_discrete(name = "Recapture", labels = c("At sea", "Homewater")) + LGCtheme  +
+  theme(legend.position = "none") +  
+  labs(x="Smolt Year", y = "First summer increment (mm)") +
+  theme(axis.title.x.bottom = element_blank(), axis.text.x.bottom = element_blank(),
+  axis.ticks.x.bottom = element_blank(), axis.title.y = element_blank(), 
+  axis.line = element_line(color="grey"), panel.border = element_blank())
+
+fs_smooth_facet_rug
+```
+
+
+
+
+```{r, warning=F, message=F, fig.height=4.5, fig.width=7.2}
+
+fw.gam1<-gam(FW.incr ~ SeaAge+s(ReleaseYear,by=SeaAge, k=5)+s(FS.incr,by=SeaAge, k=5),data=gam.dat,select=T, method = 'REML')
+summary(fw.gam1)
+
+fw.gam2<-gam(FW.incr ~ SeaAge+s(ReleaseYear,by=SeaAge, k=2)+s(FS.incr, k=5),data=gam.dat,select=T, method = 'REML')
+summary(fw.gam2)
+
+fw.gam3<-gam(FW.incr ~ SeaAge+s(ReleaseYear, k=5)+s(FS.incr, k=5),data=gam.dat,select=T, method = 'REML')
+summary(fw.gam3)
+
+fw.gam4<-gam(FW.incr ~ s(ReleaseYear, k=5)+s(FS.incr, k=5),data=gam.dat,select=T, method = 'REML')
+summary(fw.gam4)
+
+fw.gam5<-gam(FW.incr ~ s(ReleaseYear, k=5),data=gam.dat,select=T, method = 'REML')
+summary(fw.gam5)
+
+fw.gam6<-gam(FW.incr ~ s(ReleaseYear, by=SeaAge, k=5),data=gam.dat,select=T, method = 'REML')
+summary(fw.gam6)
+
+fw.gam7<-gam(FW.incr ~ s(FS.incr, k=5),data=gam.dat,select=T, method = 'REML')
+summary(fw.gam7)
+
+fw.gam8<-gam(FW.incr ~ s(FS.incr, by=SeaAge, k=5),data=gam.dat,select=T, method = 'REML')
+summary(fw.gam8)
+
+fw.gam9<-gam(FW.incr ~ SeaAge,data=gam.dat,select=T, method = 'REML')
+summary(fw.gam9)
+
+
+anova.gam(fw.gam1, fw.gam2, fw.gam3, fw.gam4, fw.gam5, fw.gam6, fw.gam7, fw.gam8, fw.gam9)
+AICtab<-AIC(fw.gam1, fw.gam2, fw.gam3, fw.gam4, fw.gam5, fw.gam6, fw.gam7, fw.gam8, fw.gam9) 
+
+AICtab %>% 
+  mutate(model = rownames(AICtab)) %>% 
+  dplyr::select(model, everything()) %>% 
+  arrange(AIC)
+
+
+
+fw_smooth_facet_rug<-plot_smooths(fw.gam2,ReleaseYear,SeaAge) +
+  facet_wrap(~SeaAge, labeller = type_labeller) + 
+  geom_rug(aes(x=ReleaseYear,y=FW.incr,color=SeaAge),data=gam.dat, na.rm = T,alpha = 0.25, position = "jitter", sides="bl") +
+  scale_y_continuous(limits = c(0,1.5)) + 
+  scale_color_manual(values=c("#00608A","#ABB400"),name = "Recapture", labels = c("At sea", "Homewater")) +
+  scale_fill_manual(values=c("#00608A","#ABB400"),name = "Recapture", labels = c("At sea", "Homewater")) + 
+  scale_linetype_discrete(name = "Recapture", labels = c("At sea", "Homewater")) + LGCtheme  +
+  theme(legend.position = "none") +  
+  labs(x="Smolt Year", y = "First winter increment (mm)") +
+  theme(axis.title.x.bottom = element_blank(), axis.text.x.bottom = element_blank(),
+  axis.ticks.x.bottom = element_blank(), 
+  strip.text = element_blank(), axis.title.y = element_blank(), 
+  axis.line = element_line(color="grey"), panel.border = element_blank())
+
+fw_smooth_facet_rug
+```
+
+
+
+```{r, warning=F, message=F, fig.height=4.5, fig.width=7.2}
+y2.gam1<-gam(DAW.incr ~ SeaAge+s(ReleaseYear,by=SeaAge, k=5)+s(PS.incr,by=SeaAge, k=5),data=gam.dat,select=T, method = 'REML')
+summary(y2.gam1)
+
+y2.gam2<-gam(DAW.incr ~ SeaAge+s(ReleaseYear,by=SeaAge, k=5)+s(PS.incr, k=5),data=gam.dat,select=T, method = 'REML')
+summary(y2.gam2)
+
+y2.gam3<-gam(DAW.incr ~ SeaAge+s(ReleaseYear, k=5)+s(PS.incr, k=5),data=gam.dat,select=T, method = 'REML')
+summary(y2.gam3)
+
+y2.gam4<-gam(DAW.incr ~ s(ReleaseYear, k=5)+s(PS.incr, k=5),data=gam.dat,select=T, method = 'REML')
+summary(y2.gam4)
+
+y2.gam5<-gam(DAW.incr ~ s(ReleaseYear, k=5),data=gam.dat,select=T, method = 'REML')
+summary(y2.gam5)
+
+y2.gam6<-gam(DAW.incr ~ s(ReleaseYear, by=SeaAge, k=5),data=gam.dat,select=T, method = 'REML')
+summary(y2.gam6)
+
+y2.gam7<-gam(DAW.incr ~ s(PS.incr, k=5),data=gam.dat,select=T, method = 'REML')
+summary(y2.gam7)
+
+y2.gam8<-gam(DAW.incr ~ s(PS.incr, by=SeaAge, k=5),data=gam.dat,select=T, method = 'REML')
+summary(y2.gam8)
+
+y2.gam9<-gam(DAW.incr ~ SeaAge,data=gam.dat,select=T, method = 'REML')
+summary(y2.gam9)
+
+
+anova.gam(y2.gam1, y2.gam2, y2.gam3, y2.gam4, y2.gam5, y2.gam6, y2.gam7, y2.gam8, y2.gam9)
+AICtab<-AIC(y2.gam1, y2.gam2, y2.gam3, y2.gam4, y2.gam5, y2.gam6, y2.gam7, y2.gam8, y2.gam9) 
+
+AICtab %>% 
+  mutate(model = rownames(AICtab)) %>% 
+  dplyr::select(model, everything()) %>% 
+  arrange(AIC)
+
+
+
+
+
+y2_smooth_facet_rug<-plot_smooths(y2.gam2,ReleaseYear,SeaAge) +
+  facet_wrap(~SeaAge,labeller = type_labeller) + 
+  geom_rug(aes(x=ReleaseYear,y=DAW.incr,color=SeaAge),data=gam.dat, na.rm = T,alpha = 0.25, position = "jitter", sides="bl") +
+  scale_y_continuous(limits = c(0,1.5)) +
+  scale_x_continuous(breaks = seq(1970,1990,10)) +
+  scale_color_manual(values=c("#00608A","#ABB400"),name = "Recapture", labels = c("At sea", "Homewater")) +
+  scale_fill_manual(values=c("#00608A","#ABB400"),name = "Recapture", labels = c("At sea", "Homewater")) + 
+  scale_linetype_discrete(name = "Recapture", labels = c("At sea", "Homewater")) +  LGCtheme  +
+  theme(legend.position = "none",strip.text = element_blank(), axis.title.y = element_blank(), 
+  axis.line = element_line(color="grey"), panel.border = element_blank()) +  
+  labs(x="Smolt Year", y = "Second year increment (mm)")
+
+y2_smooth_facet_rug
+```
+
+
+```{r}
+
+gam.dat_atsea<-gam.dat %>% 
+  filter(SeaAge == 1) %>% 
+  mutate(segment_start = 0.25) %>% 
+  mutate(segment_end = 0.28) %>% 
+  mutate(YearJitter = ReleaseYear + rnorm(100,1,0.25))
+
+gam.dat_homewater<-gam.dat %>% 
+  filter(SeaAge == 2) %>% 
+  mutate(segment_start = 0.28) %>% 
+  mutate(segment_end = 0.31) %>% 
+  mutate(YearJitter = ReleaseYear + rnorm(100,1,0.25))
+
+
+fs_smooth_facet_rug<-plot_smooths(fs.gam2,ReleaseYear,SeaAge) +
+  geom_segment(aes(x = YearJitter,y=segment_start,yend=segment_end,xend=YearJitter),data = gam.dat_atsea, color="#00608A",alpha = 0.15) + 
+  geom_segment(aes(x = YearJitter,y=segment_start,yend=segment_end,xend=YearJitter),data = gam.dat_homewater, color="#ABB400",alpha = 0.15) +  
+  scale_y_continuous(limits = c(0.25,1.35),breaks = c(0.4,0.6,0.8,1,1.2)) + 
+  scale_color_manual(values=c("#00608A","#ABB400"),name = "", labels = c("Algorithm", "Human")) +
+  scale_fill_manual(values=c("#00608A","#ABB400"),name = "", labels = c("Algorithm", "Human")) + 
+  scale_linetype_discrete(name = "", labels = c("Algorithm", "Human")) + LGCtheme  +
+  theme(legend.position = "none") +  
+  labs(x="Smolt year", y = "", title = "First summer increment (mm)")  +
+  theme(axis.title.y = element_blank(), axis.line = element_line(color="grey"),
+        panel.border = element_blank())
+
+fw_smooth_facet_rug<-plot_smooths(fw.gam2,ReleaseYear,SeaAge) +
+  geom_segment(aes(x = YearJitter,y=segment_start,yend=segment_end,xend=YearJitter),data = gam.dat_atsea, color="#00608A",alpha = 0.15) + 
+  geom_segment(aes(x = YearJitter,y=segment_start,yend=segment_end,xend=YearJitter),data = gam.dat_homewater, color="#ABB400",alpha = 0.15) +
+  scale_y_continuous(limits = c(0.25,1.35),breaks = c(0.4,0.6,0.8,1,1.2)) + 
+  scale_color_manual(values=c("#00608A","#ABB400"),name = "", labels = c("Algorithm", "Human")) +
+  scale_fill_manual(values=c("#00608A","#ABB400"),name = "", labels = c("Algorithm", "Human")) + 
+  scale_linetype_discrete(name = "", labels = c("Algorithm", "Human")) + LGCtheme  +
+  theme(legend.position = "none") +  
+  labs(x="Smolt year", y = "", title = "First winter increment (mm)")  +
+  theme(axis.title.y = element_blank(), axis.line = element_line(color="grey"),
+        panel.border = element_blank())
+
+y2_smooth_facet_rug<-plot_smooths(y2.gam2,ReleaseYear,SeaAge) +
+  geom_segment(aes(x = YearJitter,y=segment_start,yend=segment_end,xend=YearJitter),data = gam.dat_atsea, color="#00608A",alpha = 0.15) + 
+  geom_segment(aes(x = YearJitter,y=segment_start,yend=segment_end,xend=YearJitter),data = gam.dat_homewater, color="#ABB400",alpha = 0.15) +
+  scale_y_continuous(limits = c(0.25,1.35),breaks = c(0.4,0.6,0.8,1,1.2)) + 
+  scale_color_manual(values=c("#00608A","#ABB400"),name = "", labels = c("Algorithm", "Human")) +
+  scale_fill_manual(values=c("#00608A","#ABB400"),name = "", labels = c("Algorithm", "Human")) + 
+  scale_linetype_discrete(name = "", labels = c("Algorithm", "Human")) + LGCtheme  +
+  theme(legend.position = "none") +  
+  labs(x="Smolt year", y = "", title = "Second year increment (mm)")  +
+  theme(axis.title.y = element_blank(), axis.line = element_line(color="grey"),
+        panel.border = element_blank())
+
+```
+
+
+
+
+```{r, fig.height=4.25, fig.width=10}
+seasonal_GAMs<-fs_smooth_facet_rug +   fw_smooth_facet_rug +   y2_smooth_facet_rug
+
+seasonal_GAMs 
+```
+
+
+
+
+```{r, warning=F, message=F, fig.width=10, fig.height=4.25}
+
+freshxfs<-plot_smooths(fs.gam2,FMC.incr,SeaAge) + 
+  scale_x_continuous(limits=c(0.5,2)) + scale_y_continuous(limits = c(0,1.5)) +
+  scale_color_manual(values=c("#00608A","#ABB400"),name = "Recapture", labels = c("At sea", "Homewater")) +
+  scale_fill_manual(values=c("#00608A","#ABB400"),name = "Recapture", labels = c("At sea", "Homewater")) + 
+  scale_linetype_discrete(name = "Recapture", labels = c("At sea", "Homewater")) +
+  LGCtheme  + theme(legend.position = "none") +  
+  labs(x="Freshwater inc. (mm)", y = "First summer inc. (mm)") +
+  theme(panel.border = element_blank(),axis.line = element_line(color="grey"))
+
+
+fsxfw<-plot_smooths(fw.gam2,FS.incr,SeaAge)+
+  scale_x_continuous(limits=c(0,1.5)) + scale_y_continuous(limits = c(0,1.5)) +
+  scale_color_manual(values=c("#00608A","#ABB400"),name = "", labels = c("At sea", "Homewater")) +
+  scale_fill_manual(values=c("#00608A","#ABB400"),name = "", labels = c("At sea", "Homewater")) + 
+  scale_linetype_discrete(name = "", labels = c("At sea", "Homewater")) +
+  LGCtheme  + theme(legend.position = "bottom") +  
+  labs(x="First summer inc. (mm)", y = "First winter inc. (mm)") + 
+  theme(panel.border = element_blank(),axis.line = element_line(color="grey"))
+
+
+psxy2<-plot_smooths(y2.gam2,PS.incr,SeaAge) + 
+  scale_x_continuous(limits=c(0.75,2.5)) + scale_y_continuous(limits = c(0,1.5)) +
+  scale_color_manual(values=c("#00608A","#ABB400"),name = "Recapture", labels = c("At sea", "Homewater")) +
+  scale_fill_manual(values=c("#00608A","#ABB400"),name = "Recapture", labels = c("At sea", "Homewater")) + 
+  scale_linetype_discrete(name = "Recapture", labels = c("At sea", "Homewater")) +
+  LGCtheme  + theme(legend.position = "none") +  
+  labs(x="Postsmolt inc. (mm)", y = "Second year inc. (mm)") +
+  theme(panel.border = element_blank(),axis.line = element_line(color="grey"))
+
+condeffect<-(freshxfs + fsxfw + psxy2)
+condeffect
+```
+
+
+
+
+
+```{r, fig.height=7.5, fig.width=10}
+seasonal_GAMs2<-(fs_smooth_facet_rug + fw_smooth_facet_rug + y2_smooth_facet_rug)/
+  (freshxfs + fsxfw + psxy2)
+
+seasonal_GAMs2
+
+```
+

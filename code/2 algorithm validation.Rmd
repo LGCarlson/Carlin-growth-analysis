@@ -1,0 +1,115 @@
+---
+title: "algorithm validation"
+author: "LGCarlson"
+date: "10/19/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(lubridate)
+library(janitor)
+library(here)
+library(zoo) 
+
+check = function(x){summary(as.factor(x))}
+
+#set personalized plotting theme
+LGCtheme <- theme_light() + theme(panel.background = element_blank(), 
+                panel.grid = element_blank(), 
+                axis.text = element_text(size = 13), 
+                axis.title = element_text(size = 14), 
+                legend.text = element_text(size = 13), 
+                legend.title = element_text(size = 14), 
+                strip.background = element_blank(), 
+                strip.text = element_text(size = 13, color = "black"))
+
+theme_set(theme_light())
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Read in human/algorithm data created in code 1
+```{r,message=F}
+alg_vs_human_markers<-read_csv(here::here("processed_data", "alg_vs_human_markers.csv")) 
+```
+
+Create a tribble with names describing each abbreviated marker (potential axis/facet labels)
+```{r}
+marker_labels<-tribble(
+~markertype, ~label,
+"M1.loc", "First annulus location",
+"M2.loc","Second annulus location",
+"FMC", "First marine circulus location",
+"FSM", "First summer maximum location",
+"FWM", "First winter minimum location",
+"SSM","Second summer maximum location",
+"SWM", "Second winter minimum location",
+"FMC.circ","First marine circulus number",
+"smolt.circ", "Smolt circuli (n)",
+"marine.circ", "Marine circuli (n)",
+"total.circ",  "Total circuli (n)",
+"FSM.circ", "First summer maximum circulus number",
+"FWM.circ","First winter minimum circulus number",
+"SSM.circ","Second summer maximum circulus number",
+"SWM.circ","Second winter minimum circulus number",
+"FS.circ","First summer circuli (n)",
+"FW.circ","First winter circuli (n)",
+"PS.circ","Postsmolt circuli (n)",
+"SS.circ","Second summer circuli (n)",
+"SW.circ","Second winter circuli (n)",
+"Y2.circ","Second year circuli (n)",
+"M1", "First annulus circulus number",
+"M2", "Second annulus circulis number",
+"smolt.incr", "Smolt increment (mm)",
+"marine.incr", "Marine increment (mm)",
+"total.incr",  "Total increment (mm)",
+"FS.incr","First summer increment (mm)",
+"FW.incr","First winter increment (mm)",
+"PS.incr","Postsmolt increment (mm)",
+"SS.incr","Second summer increment (mm)",
+"SW.incr","Second winter increment (mm)",
+"Y2.incr","Second year increment (mm)")
+```
+
+Create a dataframe to calculate the difference between the human marked vs algorithm calculated increments, then look at summaries. Things like FMC, M1, M2, and total.circ must be zero
+```{r}
+human_only<-alg_vs_human_markers %>% 
+  filter(markersource == "human") %>% 
+  gather(key="markertype", value = "human_value", 4:35) %>% 
+  dplyr::select(-markersource)
+
+alg_only<-alg_vs_human_markers %>% 
+  filter(markersource == "algorithm") %>% 
+  gather(key="markertype", value = "algorithm_value", 4:35) %>% 
+  dplyr::select(-markersource) 
+
+alg_vs_human_long<-human_only %>% left_join(alg_only, by = c("JoinID","ReleaseYear","markertype")) %>% 
+  mutate(diff = human_value - algorithm_value)
+
+alg_vs_human_long %>% 
+  filter(!is.na(diff)) %>% 
+  group_by(markertype) %>% 
+  summarise(mean=mean(diff), n=n())
+```
+
+Visualize differences in increments between human and algorithm placed markers
+
+```{r}
+alg_vs_human_long %>% 
+  left_join(marker_labels, by = "markertype") %>% 
+  filter(markertype %in% c("FS.incr","FW.incr","PS.incr","SS.incr","SW.incr","Y2.incr")) %>% 
+  ggplot(aes(x=diff, y=label)) + ggridges::geom_density_ridges(scale = 0.9, size = 0.2, rel_min_height = 0.0075) + 
+  geom_vline(xintercept = 0, lty=2) + xlim(-1,1) + LGCtheme + 
+  theme(panel.border = element_blank(), axis.line.x = element_line(color = "lightgrey"), axis.line.y = element_line(color = "lightgrey")) + labs(x="Difference between human and algorithm",y="")
+
+```
+
+
+
+
+
+
+
+
+
+
