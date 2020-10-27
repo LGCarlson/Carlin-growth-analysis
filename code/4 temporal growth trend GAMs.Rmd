@@ -65,7 +65,8 @@ Create a dataframe of for writing gams
 
 ```{r}
 gam.dat <- Carlin_full_algorithm %>% 
-  mutate(SeaAge = as.factor(SeaAge)) 
+  mutate(SeaAge = as.factor(SeaAge)) %>% 
+  filter(ifelse(SeaAge == 2, ReleaseYear > 1974, ReleaseYear < 1997)) 
 
 table(gam.dat$ReleaseYear[gam.dat$SeaAge == 1])
 
@@ -309,4 +310,5 @@ seasonal_GAMs2<-(fs_smooth_facet_rug + fw_smooth_facet_rug + y2_smooth_facet_rug
 seasonal_GAMs2
 
 ```
+
 

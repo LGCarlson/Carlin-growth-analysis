@@ -86,13 +86,15 @@ Create a dataframe of for writing gams
 ```{r}
 gam_df<-alg_vs_human_markers %>% 
   left_join(detrend_df,by=c("JoinID","markersource")) %>% 
-  mutate(markersource = as.factor(markersource))
+  mutate(markersource = as.factor(markersource)) 
+
+table(gam_df$ReleaseYear)
 ```
 
 ### First summer increment
 
 ```{r}
-fs.gam2<-mgcv::gam(FS.incr ~ markersource+s(ReleaseYear,by=markersource, k=10)+s(smolt.incr, k=10),data=gam_df,select=T, method = 'REML')
+fs.gam2<-mgcv::gam(FS.incr ~ markersource+s(ReleaseYear,by=markersource, k=5)+s(smolt.incr, k=5),data=gam_df,select=T, method = 'REML')
 
 
 fs_smooth<-plot_smooths(fs.gam2,ReleaseYear,markersource) +
@@ -124,7 +126,7 @@ fs_smooth_facet_rug<-plot_smooths(fs.gam2,ReleaseYear,markersource) +
 
 ```{r}
 
-fw.gam2<-gam(FW.incr ~ markersource+s(ReleaseYear,by=markersource, k=10)+s(FS.incr, k=10),data=gam_df,select=T, method = 'REML')
+fw.gam2<-gam(FW.incr ~ markersource+s(ReleaseYear,by=markersource, k=5)+s(FS.incr, k=5),data=gam_df,select=T, method = 'REML')
 
 
 fw_smooth<-plot_smooths(fw.gam2,ReleaseYear,markersource) +
@@ -158,7 +160,7 @@ fw_smooth_facet_rug<-plot_smooths(fw.gam2,ReleaseYear,markersource) +
 
 ```{r}
 
-y2.gam2<-gam(DAW.incr ~ markersource+s(ReleaseYear,by=markersource, k=10)+s(PS.incr, k=10),data=gam_df,select=T, method = 'REML')
+y2.gam2<-gam(DAW.incr ~ markersource+s(ReleaseYear,by=markersource, k=2)+s(PS.incr, k=5),data=gam_df,select=T, method = 'REML')
 
 # *uses detrended after winter increment rather
 
